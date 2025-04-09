@@ -6,6 +6,9 @@ import { JwtModule } from '@nestjs/jwt';
 import jwtConfig from './config/jwt.config';
 import { ConfigModule } from '@nestjs/config';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { BrightDataModule } from './bright-data/bright-data.module';
+import { CaptchaSolverService } from './captcha-solver/captcha-solver.service';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
@@ -13,8 +16,14 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     SearchedIdentitiesModule,
     ReportsModule,
     JwtModule.registerAsync(jwtConfig.asProvider()),
-    ConfigModule.forFeature(jwtConfig),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [jwtConfig],
+    }),
+    BrightDataModule,
+    HttpModule,
   ],
-  providers: [JwtStrategy],
+  exports: [CaptchaSolverService],
+  providers: [JwtStrategy, CaptchaSolverService],
 })
 export class AppModule {}
