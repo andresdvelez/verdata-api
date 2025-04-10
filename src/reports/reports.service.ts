@@ -25,39 +25,39 @@ export class ReportsService {
       });
 
       // Step 1: Get identity verification
-      // const sanctionsLists = createSanctionsListsStructureExample();
+      const sanctionsLists = createSanctionsListsStructureExample();
 
       // // Step 2: Build and create the report
-      // if (!createdIdentity.Report) {
-      //   const report = await this.prisma.report.create({
-      //     data: {
-      //       user_id: userId,
-      //       related_identity_id: createdIdentity.id,
-      //       is_identity_matched: true,
-      //       risk_score: this.calculateRiskScore(),
-      //       sanctions_lists: sanctionsLists,
-      //       peps_verification: false,
-      //       criminal_records: Math.random() > 0.5, // Randomized for demo
-      //       news_media: Math.random() > 0.5, // Randomized for demo
-      //       nationality: createdIdentity.nationality,
-      //       search_data: createReportDto.documentNumber,
-      //       search_type: createReportDto.searchType,
-      //       created_at: new Date(),
-      //     },
-      //   });
+      if (!createdIdentity.Report) {
+        const report = await this.prisma.report.create({
+          data: {
+            user_id: userId,
+            related_identity_id: createdIdentity.id,
+            is_identity_matched: true,
+            risk_score: this.calculateRiskScore(),
+            sanctions_lists: sanctionsLists,
+            peps_verification: false,
+            criminal_records: Math.random() > 0.5, // Randomized for demo
+            news_media: Math.random() > 0.5, // Randomized for demo
+            nationality: createdIdentity.nationality,
+            search_data: createReportDto.documentNumber,
+            search_type: createReportDto.searchType,
+            created_at: new Date(),
+          },
+        });
 
-      //   // Step 3: Return the complete report with related identity
-      //   const completeReport = await this.prisma.report.findUnique({
-      //     where: { id: report.id },
-      //     include: {
-      //       SearchedIdentities: true,
-      //     },
-      //   });
+        // Step 3: Return the complete report with related identity
+        const completeReport = await this.prisma.report.findUnique({
+          where: { id: report.id },
+          include: {
+            SearchedIdentities: true,
+          },
+        });
 
-      //   return completeReport;
-      // }
+        return completeReport;
+      }
 
-      // return createdIdentity.Report;
+      return createdIdentity.Report;
     } catch (error) {
       console.log(error);
       throw new HttpException(

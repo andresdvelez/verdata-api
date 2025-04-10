@@ -1,5 +1,3 @@
-// src/bright-data/bright-data.service.ts
-
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
@@ -7,8 +5,9 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as fs from 'fs';
 import * as https from 'https';
 import { join } from 'path';
-import puppeteer from 'puppeteer';
 import { CaptchaSolverService } from 'src/captcha-solver/captcha-solver.service';
+import { Page } from 'puppeteer';
+import { VerifyIdentityType } from 'src/reports/dto/create-report.dto';
 
 @Injectable()
 export class BrightDataService {
@@ -21,7 +20,7 @@ export class BrightDataService {
 
   constructor(
     private configService: ConfigService,
-    private readonly captchaSolver?: CaptchaSolverService,
+    private readonly captchaSolver: CaptchaSolverService,
   ) {
     this.username = this.configService.get<string>('BRIGHTDATA_USERNAME')!;
     this.password = this.configService.get<string>('BRIGHTDATA_PASSWORD')!;
@@ -56,46 +55,33 @@ export class BrightDataService {
   async getPoliceJudicialRecord(
     documentType: string,
     documentNumber: string,
-  ): Promise<string> {
-    // Launch browser without proxy
-    const browser = await puppeteer.launch({
-      headless: false, // Set to true in production
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-      ],
-    });
+  ): Promise<VerifyIdentityType> {
+    const url =
+      'https://antecedentes.policia.gov.co:7005/WebJudicial/index.xhtml';
+    let page: Page | null = null;
 
     try {
-      const page = await browser.newPage();
-
-      // Navigate to the police antecedents website
-      await page.goto(
-        'https://antecedentes.policia.gov.co:7005/WebJudicial/index.xhtml',
-        {
-          waitUntil: 'networkidle2',
-          timeout: 60000,
-        },
-      );
-
-      await page.waitForSelector('#aceptaOption\\:0', { visible: true });
-      await page.evaluate(() => {
-        document.querySelector('#aceptaOption\\:0');
+      // Usar el método avanzado para navegar y resolver captchas
+      page = await this.captchaSolver.solveWithBrowser(url, {
+        // No bloquear imágenes ya que pueden ser necesarias para el captcha
+        blockResources: ['font', 'media', 'stylesheet'],
+        waitUntil: 'networkidle2',
       });
 
+      // Aceptar términos y condiciones
+      await page.waitForSelector('#aceptaOption\\:0', { visible: true });
       await page.evaluate(() => {
         const aceptaOption = document.querySelector('#aceptaOption\\:0');
         if (aceptaOption) {
           (aceptaOption as HTMLButtonElement).click();
         }
       });
+
       await page.waitForFunction(() => {
         const btn = document.querySelector('#continuarBtn');
         return btn && !(btn as HTMLButtonElement).disabled;
       });
+
       await page.evaluate(() => {
         const continuarBtn = document.querySelector('#continuarBtn');
         if (continuarBtn) {
@@ -103,10 +89,10 @@ export class BrightDataService {
         }
       });
 
-      // Wait for the form to load
+      // Esperar a que el formulario cargue
       await page.waitForSelector('#cedulaTipo', { visible: true });
 
-      // Map document type to form value
+      // Mapear tipo de documento
       const docTypeMap = {
         CC: 'cc', // Cédula de Ciudadanía
         CE: 'cx', // Cédula de Extranjería
@@ -114,63 +100,60 @@ export class BrightDataService {
         DP: 'dp', // Documento País Origen
       };
 
-      // Select document type
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+      // Seleccionar tipo de documento
       await page.select('#cedulaTipo', docTypeMap[documentType] || 'cc');
 
-      // Enter document number
+      // Ingresar número de documento
       await page.type('#cedulaInput', documentNumber);
-      // Handle reCAPTCHA
-      if (this.captchaSolver) {
-        // Get the site key from the page
-        // const siteKey = await page.evaluate(() => {
-        //   const recaptchaDiv = document.querySelector('.g-recaptcha');
-        //   return recaptchaDiv
-        //     ? recaptchaDiv.getAttribute('data-sitekey')
-        //     : null;
-        // });
 
-        // Solve the CAPTCHA
-        const captchaSolution = await this.captchaSolver.solve2Captcha(
-          '6LfIQxErAAAAAPI5I3QgYD7A5NYyao_WF4Ozmk2r',
-          'https://antecedentes.policia.gov.co:7005/WebJudicial/antecedentes.xhtml',
-        );
+      // Ya no necesitamos gestionar el captcha manualmente, el servicio de captchaBypass
+      // se encargó de eso durante la navegación, pero podemos intentar una segunda
+      // resolución si es necesario
+      await this.captchaSolver.solveCaptchaInPage(page);
 
-        console.log(captchaSolution);
-
-        // Apply the solution
-        await page.evaluate(
-          `document.getElementById("g-recaptcha-response").innerHTML="${captchaSolution}"`,
-        );
-
-        // Trigger reCAPTCHA callback
-        await page.evaluate('___grecaptcha_cfg.clients[0].aa.l.callback()');
-
-        // Wait for a moment to ensure the CAPTCHA is properly verified
-        await page.waitForSelector('g-recaptcha-response', { timeout: 100000 });
-      }
-
-      // Click the submit button
+      // Hacer clic en el botón de envío
       await page.click('#j_idt17');
 
-      // Wait for results to load
+      // Esperar a que los resultados carguen
       await page.waitForSelector('#form\\:mensajeCiudadano', {
         timeout: 30000,
       });
 
-      // Extract the result text
-      const resultText = (await page.evaluate(() => {
+      // Extraer el texto del resultado
+      const resultText = await page.evaluate(() => {
         const element = document.querySelector('#form\\:mensajeCiudadano');
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
-        return element ? (element as any).innerText : '';
-      })) as string;
+        return element ? (element as HTMLFormElement).innerText : '';
+      });
 
-      return resultText;
+      const extractInformation = (texto: string): VerifyIdentityType => {
+        const regex =
+          /Cédula de Ciudadanía Nº (\d+)\nApellidos y Nombres: (.+?)\n/;
+        const coincidences = texto.match(regex);
+
+        if (!coincidences) {
+          throw new Error('No matches found in the result text.');
+        }
+        const idNumber = coincidences[1];
+        const fullName = coincidences[2];
+
+        return {
+          id: idNumber,
+          name: fullName,
+          nationality: 'Colombiana',
+          document_type: 'Cédula de Ciudadanía',
+        };
+      };
+
+      const resultado = extractInformation(resultText);
+
+      return resultado;
     } catch (error) {
-      console.error('Error scraping police records:', error);
+      this.logger.error('Error scraping police records:', error);
       throw error;
     } finally {
-      await browser.close();
+      if (page) {
+        await page.close();
+      }
     }
   }
 
@@ -194,7 +177,7 @@ export class BrightDataService {
           (error as { message: string })?.message || 'Unknown error';
         this.logger.warn(`Attempt ${attempt} failed: ${message}`);
         if (attempt === retries) throw new Error('All retries failed.');
-        await new Promise((res) => setTimeout(res, 1000 * attempt)); // Exponential backoff
+        await new Promise((res) => setTimeout(res, 1000 * attempt));
       }
     }
   }

@@ -9,6 +9,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { BrightDataModule } from './bright-data/bright-data.module';
 import { CaptchaSolverService } from './captcha-solver/captcha-solver.service';
 import { HttpModule } from '@nestjs/axios';
+import { CaptchaBypassService } from './captcha-bypass/captcha-bypass.service';
+import { CaptchaSolverModule } from './captcha-solver/captcha-solver.module';
 
 @Module({
   imports: [
@@ -22,8 +24,9 @@ import { HttpModule } from '@nestjs/axios';
     }),
     BrightDataModule,
     HttpModule,
+    CaptchaSolverModule,
   ],
-  exports: [CaptchaSolverService],
-  providers: [JwtStrategy, CaptchaSolverService],
+  exports: [CaptchaSolverService, CaptchaBypassService],
+  providers: [JwtStrategy, CaptchaSolverService, CaptchaBypassService],
 })
 export class AppModule {}

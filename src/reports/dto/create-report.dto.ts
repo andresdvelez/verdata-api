@@ -12,8 +12,8 @@ export class CreateReportDto {
 }
 
 export interface VerifyIdentityType {
-  ID: string;
-  Nombres: string;
-  Nacionalidad: string;
-  'Tipo de documento': string;
+  id: string;
+  name: string;
+  nationality: string;
+  document_type: string;
 }
