@@ -76,9 +76,23 @@ export class CaptchaSolverService {
     return solution;
   }
 
+  /**
+   * Configura el servicio para usar Browserless.io
+   */
+  async setupWithBrowserless(token?: string) {
+    const browserlessToken =
+      token || this.configService.get<string>('BROWSERLESS_TOKEN');
+
+    if (!browserlessToken) {
+      throw new Error('Se requiere un token de Browserless.io');
+    }
+
+    return this.captchaBypassService.setupWithBrowserless(browserlessToken);
+  }
+
   // Nuevo método usando CaptchaBypassService
   async solveWithBrowser(url: string, options: any = {}) {
-    // Asegurar que el servicio de bypass esté configurado
+    // Asegurar que el servicio de resolución de captchas esté configurado
     await this.captchaBypassService.setupCaptchaSolver();
 
     // Navegar y resolver captchas automáticamente

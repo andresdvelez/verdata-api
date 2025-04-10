@@ -6,8 +6,8 @@ import * as fs from 'fs';
 import * as https from 'https';
 import { join } from 'path';
 import { CaptchaSolverService } from 'src/captcha-solver/captcha-solver.service';
-import { Page } from 'puppeteer';
 import { VerifyIdentityType } from 'src/reports/dto/create-report.dto';
+import { Page } from 'puppeteer';
 
 @Injectable()
 export class BrightDataService {
@@ -17,6 +17,7 @@ export class BrightDataService {
   private readonly host: string;
   private readonly port: string;
   private readonly caCert: Buffer;
+  private readonly browserlessToken: string;
 
   constructor(
     private configService: ConfigService,
@@ -26,6 +27,8 @@ export class BrightDataService {
     this.password = this.configService.get<string>('BRIGHTDATA_PASSWORD')!;
     this.host = this.configService.get<string>('BRIGHTDATA_HOST')!;
     this.port = this.configService.get<string>('BRIGHTDATA_PORT') || '33335';
+    this.browserlessToken =
+      this.configService.get<string>('BROWSERLESS_TOKEN')!;
 
     const caPath =
       this.configService.get<string>('BRIGHTDATA_CA_PATH') ||
@@ -61,7 +64,15 @@ export class BrightDataService {
     let page: Page | null = null;
 
     try {
-      // Usar el método avanzado para navegar y resolver captchas
+      // Configurar el servicio para usar Browserless.io si está disponible
+      if (this.browserlessToken) {
+        this.logger.log('Usando Browserless.io para el scraping');
+        await this.captchaSolver.setupWithBrowserless(this.browserlessToken);
+      } else {
+        this.logger.log('Usando navegador local para el scraping');
+      }
+
+      // Usar el servicio de resolución de captchas
       page = await this.captchaSolver.solveWithBrowser(url, {
         // No bloquear imágenes ya que pueden ser necesarias para el captcha
         blockResources: ['font', 'media', 'stylesheet'],
