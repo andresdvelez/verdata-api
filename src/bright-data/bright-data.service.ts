@@ -1,13 +1,13 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as fs from 'fs';
-import * as https from 'https';
 import { join } from 'path';
 import { CaptchaSolverService } from 'src/captcha-solver/captcha-solver.service';
 import { VerifyIdentityType } from 'src/reports/dto/create-report.dto';
 import { Page } from 'puppeteer';
+import * as https from 'https';
 
 @Injectable()
 export class BrightDataService {
@@ -15,7 +15,7 @@ export class BrightDataService {
   private readonly username: string;
   private readonly password: string;
   private readonly host: string;
-  private readonly port: string;
+  private readonly port: number;
   private readonly caCert: Buffer;
   private readonly browserlessToken: string;
 
@@ -26,7 +26,8 @@ export class BrightDataService {
     this.username = this.configService.get<string>('BRIGHTDATA_USERNAME')!;
     this.password = this.configService.get<string>('BRIGHTDATA_PASSWORD')!;
     this.host = this.configService.get<string>('BRIGHTDATA_HOST')!;
-    this.port = this.configService.get<string>('BRIGHTDATA_PORT') || '33335';
+    this.port =
+      Number(this.configService.get<string>('BRIGHTDATA_PORT')) || 33335;
     this.browserlessToken =
       this.configService.get<string>('BROWSERLESS_TOKEN')!;
 
@@ -35,24 +36,6 @@ export class BrightDataService {
       join(__dirname, '..', '..', 'certs', 'brightdata_ca.crt');
 
     this.caCert = fs.readFileSync(caPath);
-  }
-
-  /**
-   * Creates both the proxy agent and HTTPS agent including the CA certificate.
-   */
-  private createAgents() {
-    const sessionId = Math.floor(Math.random() * 100000);
-    const proxyUsername = `${this.username}-session-${sessionId}`;
-    const proxyUrl = `http://${proxyUsername}:${this.password}@${this.host}:${this.port}`;
-
-    const proxyAgent = new HttpsProxyAgent(proxyUrl);
-
-    const httpsAgent = new https.Agent({
-      ca: this.caCert,
-      rejectUnauthorized: true,
-    });
-
-    return { proxyAgent, httpsAgent };
   }
 
   async getPoliceJudicialRecord(
@@ -64,7 +47,7 @@ export class BrightDataService {
     let page: Page | null = null;
 
     try {
-      // Configurar el servicio para usar Browserless.io si está disponible
+      // Use Browserless.io if available for scraping.
       if (this.browserlessToken) {
         this.logger.log('Usando Browserless.io para el scraping');
         await this.captchaSolver.setupWithBrowserless(this.browserlessToken);
@@ -72,14 +55,13 @@ export class BrightDataService {
         this.logger.log('Usando navegador local para el scraping');
       }
 
-      // Usar el servicio de resolución de captchas
+      // Use the captcha solver service for page resolution.
       page = await this.captchaSolver.solveWithBrowser(url, {
-        // No bloquear imágenes ya que pueden ser necesarias para el captcha
         blockResources: ['font', 'media', 'stylesheet'],
         waitUntil: 'networkidle2',
       });
 
-      // Aceptar términos y condiciones
+      // Accept the terms and conditions.
       await page.waitForSelector('#aceptaOption\\:0', { visible: true });
       await page.evaluate(() => {
         const aceptaOption = document.querySelector('#aceptaOption\\:0');
@@ -100,37 +82,35 @@ export class BrightDataService {
         }
       });
 
-      // Esperar a que el formulario cargue
+      // Wait for the form to load.
       await page.waitForSelector('#cedulaTipo', { visible: true });
 
-      // Mapear tipo de documento
-      const docTypeMap = {
+      // Map document type.
+      const docTypeMap: { [key: string]: string } = {
         CC: 'cc', // Cédula de Ciudadanía
         CE: 'cx', // Cédula de Extranjería
         PA: 'pa', // Pasaporte
         DP: 'dp', // Documento País Origen
       };
 
-      // Seleccionar tipo de documento
+      // Select document type.
       await page.select('#cedulaTipo', docTypeMap[documentType] || 'cc');
 
-      // Ingresar número de documento
+      // Enter document number.
       await page.type('#cedulaInput', documentNumber);
 
-      // Ya no necesitamos gestionar el captcha manualmente, el servicio de captchaBypass
-      // se encargó de eso durante la navegación, pero podemos intentar una segunda
-      // resolución si es necesario
+      // Resolve captcha on the page.
       await this.captchaSolver.solveCaptchaInPage(page);
 
-      // Hacer clic en el botón de envío
+      // Click on the submit button.
       await page.click('#j_idt17');
 
-      // Esperar a que los resultados carguen
+      // Wait for the results.
       await page.waitForSelector('#form\\:mensajeCiudadano', {
         timeout: 30000,
       });
 
-      // Extraer el texto del resultado
+      // Extract result text.
       const resultText = await page.evaluate(() => {
         const element = document.querySelector('#form\\:mensajeCiudadano');
         return element ? (element as HTMLFormElement).innerText : '';
@@ -156,7 +136,6 @@ export class BrightDataService {
       };
 
       const resultado = extractInformation(resultText);
-
       return resultado;
     } catch (error) {
       this.logger.error('Error scraping police records:', error);
@@ -169,25 +148,36 @@ export class BrightDataService {
   }
 
   /**
-   * Executes a GET request through Bright Data proxy with retries and CA support.
+   * Executes a GET request through the Bright Data proxy with retries.
    */
   async getWithProxy(url: string, retries = 3): Promise<any> {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const { proxyAgent, httpsAgent } = this.createAgents();
-
-        const response = await axios.get(url, {
-          httpAgent: proxyAgent,
-          httpsAgent,
-          proxy: false, // disable default Axios proxy handling
+        // Create a fresh instance of Axios with proxy configuration
+        const instance = axios.create({
+          proxy: {
+            host: this.host,
+            port: this.port,
+            auth: {
+              username: `${this.username}-session-${Math.floor(Math.random() * 100000)}`,
+              password: this.password,
+            },
+            protocol: 'http',
+          },
+          httpsAgent: new https.Agent({
+            ca: this.caCert,
+            rejectUnauthorized: false,
+          }),
         });
 
+        const response = await instance.get(url);
         return response.data;
       } catch (error) {
         const message =
           (error as { message: string })?.message || 'Unknown error';
         this.logger.warn(`Attempt ${attempt} failed: ${message}`);
         if (attempt === retries) throw new Error('All retries failed.');
+        // Exponential backoff before retry
         await new Promise((res) => setTimeout(res, 1000 * attempt));
       }
     }
