@@ -11,12 +11,11 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Browser } from 'puppeteer';
+import { Browser, Page } from 'puppeteer';
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const RecaptchaPlugin = require('puppeteer-extra-plugin-recaptcha');
 const AnonymizeUAPlugin = require('puppeteer-extra-plugin-anonymize-ua');
-import { Page } from 'puppeteer';
 
 @Injectable()
 export class CaptchaBypassService implements OnModuleInit, OnModuleDestroy {
@@ -64,7 +63,7 @@ export class CaptchaBypassService implements OnModuleInit, OnModuleDestroy {
         'Iniciando instancia de navegador para resolución de captchas...',
       );
 
-      // Si estamos usando Browserless.io
+      // If using Browserless.io
       if (this.isBrowserless && this.browserlessToken) {
         const launchArgs = JSON.stringify({
           args: [
@@ -75,7 +74,10 @@ export class CaptchaBypassService implements OnModuleInit, OnModuleDestroy {
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
             '--disable-gpu',
-            `--window-size=${1920 + Math.floor(Math.random() * 100)},${1080 + Math.floor(Math.random() * 100)}`,
+            '--window-size=' +
+              (1920 + Math.floor(Math.random() * 100)) +
+              ',' +
+              (1080 + Math.floor(Math.random() * 100)),
           ],
           stealth: true, // Enable built-in stealth
           timeout: 60000,
@@ -94,7 +96,11 @@ export class CaptchaBypassService implements OnModuleInit, OnModuleDestroy {
           throw error;
         }
       } else {
-        // Opciones por defecto para Puppeteer local
+        // Local Puppeteer launch with proxy configuration:
+        const brightdataHost =
+          this.configService.get<string>('BRIGHTDATA_HOST');
+        const brightdataPort =
+          this.configService.get<string>('BRIGHTDATA_PORT') || '33335';
         const defaultOptions = {
           headless:
             this.configService.get<string>('NODE_ENV') === 'production'
@@ -108,11 +114,13 @@ export class CaptchaBypassService implements OnModuleInit, OnModuleDestroy {
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
             '--disable-gpu',
+            // Proxy argument to force traffic through Bright Data
+            `--proxy-server=http://${brightdataHost}:${brightdataPort}`,
             `--window-size=${1920 + Math.floor(Math.random() * 100)},${1080 + Math.floor(Math.random() * 100)}`,
           ],
         };
 
-        // Iniciar el navegador con las opciones combinadas
+        // Launch local browser with merged options
         this.browser = await puppeteer.launch({
           ...defaultOptions,
           ...options,
