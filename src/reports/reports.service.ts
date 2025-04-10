@@ -27,7 +27,7 @@ export class ReportsService {
       // Step 1: Get identity verification
       const sanctionsLists = createSanctionsListsStructureExample();
 
-      // Step 2: Build and create the report
+      // // Step 2: Build and create the report
       if (!createdIdentity.Report) {
         const report = await this.prisma.report.create({
           data: {
