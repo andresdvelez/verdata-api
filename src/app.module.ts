@@ -21,6 +21,7 @@ import { CaptchaSolverModule } from './captcha-solver/captcha-solver.module';
     ConfigModule.forRoot({
       isGlobal: true,
       load: [jwtConfig],
+      envFilePath: '.env',
     }),
     BrightDataModule,
     HttpModule,
