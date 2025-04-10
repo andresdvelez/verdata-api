@@ -23,6 +23,8 @@ export class CaptchaBypassService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CaptchaBypassService.name);
   private browser: Browser | null = null;
   private readonly apiKey: string;
+  private isBrowserless = false;
+  private browserlessToken = '';
 
   constructor(private configService: ConfigService) {
     this.apiKey =
@@ -42,35 +44,80 @@ export class CaptchaBypassService implements OnModuleInit, OnModuleDestroy {
     await this.closeBrowser();
   }
 
+  /**
+   * Configura el servicio para usar Browserless.io
+   */
+  async setupWithBrowserless(token: string) {
+    this.browserlessToken = token;
+    this.isBrowserless = true;
+
+    // Close any existing browser before switching to Browserless
+    await this.closeBrowser();
+
+    this.logger.log('Browserless.io configurado para su uso');
+    return true;
+  }
+
   private async initBrowser(options = {}) {
     if (!this.browser || !this.browser.isConnected()) {
       this.logger.log(
         'Iniciando instancia de navegador para resolución de captchas...',
       );
 
-      // Opciones por defecto para Puppeteer
-      const defaultOptions = {
-        headless:
-          this.configService.get<string>('NODE_ENV') === 'production'
-            ? true
-            : false,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-web-security',
-          '--disable-features=IsolateOrigins,site-per-process',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
-          `--window-size=${1920 + Math.floor(Math.random() * 100)},${1080 + Math.floor(Math.random() * 100)}`,
-        ],
-      };
+      // Si estamos usando Browserless.io
+      if (this.isBrowserless && this.browserlessToken) {
+        const launchArgs = JSON.stringify({
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu',
+            `--window-size=${1920 + Math.floor(Math.random() * 100)},${1080 + Math.floor(Math.random() * 100)}`,
+          ],
+          stealth: true, // Enable built-in stealth
+          timeout: 60000,
+        });
 
-      // Iniciar el navegador con las opciones combinadas
-      this.browser = await puppeteer.launch({
-        ...defaultOptions,
-        ...options,
-      });
+        this.logger.log('Conectando con Browserless.io...');
+        try {
+          this.browser = await puppeteer.connect({
+            browserWSEndpoint: `wss://production-sfo.browserless.io/?token=${this.browserlessToken}&launch=${launchArgs}`,
+          });
+          this.logger.log('Conexión exitosa con Browserless.io');
+        } catch (error) {
+          this.logger.error(
+            `Error al conectar con Browserless.io: ${error.message}`,
+          );
+          throw error;
+        }
+      } else {
+        // Opciones por defecto para Puppeteer local
+        const defaultOptions = {
+          headless:
+            this.configService.get<string>('NODE_ENV') === 'production'
+              ? true
+              : false,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu',
+            `--window-size=${1920 + Math.floor(Math.random() * 100)},${1080 + Math.floor(Math.random() * 100)}`,
+          ],
+        };
+
+        // Iniciar el navegador con las opciones combinadas
+        this.browser = await puppeteer.launch({
+          ...defaultOptions,
+          ...options,
+        });
+      }
     }
     return this.browser;
   }
@@ -78,7 +125,11 @@ export class CaptchaBypassService implements OnModuleInit, OnModuleDestroy {
   private async closeBrowser() {
     if (this.browser) {
       this.logger.log('Cerrando instancia de navegador...');
-      await this.browser.close();
+      try {
+        await this.browser.close();
+      } catch (error) {
+        this.logger.warn(`Error al cerrar el navegador: ${error.message}`);
+      }
       this.browser = null;
     }
   }
